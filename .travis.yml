@@ -1,0 +1,14 @@
+nguage: python
+
+services:
+  - docker
+
+before_install:
+  - docker build -t icluesu2020/nl-positivity:latest .
+  - docker run --name nlp_bash --rm -it -d icluesu2020/nl-positivity:latest bash
+  - docker ps
+
+script:
+  - ls
+  - pwd
+  - docker exec -t -d nlp time ./run.py -n 4 -k 4
