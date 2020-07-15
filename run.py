@@ -1,5 +1,6 @@
 #!/usr/bin/env pypy3
 import argparse
+import multiprocessing
 import numpy as np
 import os
 import sys
@@ -72,29 +73,27 @@ def flagger(n, k, inequalities=[]):
           satisfies = True
           pos = bool(nlcoef(mu, nu, lam, check_positivity=True))
           for (muu, nuu, lamm) in permutations((mu, nu, lam)):
-            sat = all(ineq(muu, nuu, lamm) for ineq in inequalities)
+            failed_inequalities = [
+              (i, (muu, nuu, lamm))
+              for i, ineq in enumerate(inequalities)
+              if not ineq(muu, nuu, lamm)
+            ]
+            sat = not failed_inequalities
             satisfies = satisfies and sat
             if pos and not sat:
-              failed_inequalities = [
-                (i, (muu, nuu, lamm))
-                for i, ineq in enumerate(inequalities)
-                if not ineq(muu, nuu, lamm)
-              ]
-              yield Result(
+              print(Result(
                 Triple(mu, nu, lam),
                 satisfies=False,
                 failed_inequalities=failed_inequalities,
-              )
+              ))
               break
           else:
             if not pos and satisfies:
-              yield Result(
+              print(Result(
                 Triple(mu, nu, lam),
                 satisfies=True,
                 failed_inequalities=None,
-              )
-
-  yield from ()
+              ))
 
 
 def theorem512(n, mu, nu, lam, verbose=False):
@@ -159,38 +158,33 @@ def horn(n, mu, nu, lam, verbose=False):
 
 # Every triple with positive NL-number should satisfy these inequalities.
 get_inequalities = lambda n: [
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(lam, 1) - at(lam, 3) + at(nu, 1) + at(nu, 3),
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(nu, 1) + at(nu, 2) - at(nu, 3),
-    # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(lam, 1) + at(nu, 2),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(lam, 1) - at(lam, 3) + at(nu, 1) + at(nu, 3),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(nu, 1) + at(nu, 2) - at(nu, 3),
+  # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(lam, 1) + at(nu, 2),
 
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 3),
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 3) - at(nu, 4),
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-    # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(mu, 3) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 3),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 3) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 2) + at(mu, 3) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
 
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) - at(nu, 3) - at(nu, 4),
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
-    # lambda mu, nu, lam: 0 <= -at(mu, 1) - at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) + at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) - at(nu, 3) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
+  lambda mu, nu, lam: 0 <= -at(mu, 1) - at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) + at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
 
-    partial(dsums, n),
-    partial(theorem512, n),
-    partial(horn, n),
-  ]
+  partial(dsums, n),
+  partial(theorem512, n),
+  partial(horn, n),
+]
 
 
 def main(args):
   n, k = args.n, args.k
-
   inequalities = get_inequalities(n)
+  flagger(n, k, inequalities=inequalities)
 
-  n_results = 0
-  for result in flagger(n, k, inequalities=inequalities):
-    print(result)
-    n_results += 1
-
-  print(f'Number flagged: {n_results}')
+  # print(f'Number flagged: {n_results}')
   # The `failed_inequalities` field is a list of tuples (i, (m,n,l)) where `i`
   # is the index of the inequality that failed and `m,n,l` is the permutation of
   # the partitions that caused the inequality to fail
