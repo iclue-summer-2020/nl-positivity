@@ -1,6 +1,5 @@
 #!/usr/bin/env pypy3
 import argparse
-import multiprocessing
 import numpy as np
 import os
 import sys
@@ -18,7 +17,6 @@ from nlnum import PartitionsIn, nlcoef as nlc, lrcoef as lrc
 
 Triple = namedtuple('Triple', ['mu', 'nu', 'lam'])
 Result = namedtuple('Result', ['triple', 'satisfies', 'failed_inequalities'])
-
 
 
 @lru_cache(maxsize=None)
