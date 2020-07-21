@@ -154,6 +154,57 @@ def horn(n, mu, nu, lam, verbose=False):
   return True
 
 
+@lru_cache(maxsize=None)
+def grand_iter(n):
+  '''This is the large set of inequalities.'''
+  ans = []
+  for (A, Ap), (B, Bp), (C, Cp) in product(disjoints(n, nsets=2), repeat=3):
+    if not (
+      len(A) >= max(len(Bp),len(Cp))
+      and len(B) >= max(len(Ap),len(Cp))
+      and len(C) >= max(len(Ap),len(Bp))
+      ): continue
+
+    for A1, A2 in product(combinations(range(1, n+1), r=len(Ap)), repeat=2):
+      if lrcoef(tau(Ap), tau(A1), tau(A2)) <= 0: continue
+      for B1, B2 in product(combinations(range(1, n+1), r=len(Bp)), repeat=2):
+        if lrcoef(tau(Bp), tau(B1), tau(B2)) <= 0: continue
+        for C1, C2 in product(combinations(range(1, n+1), r=len(Cp)), repeat=2):
+          if lrcoef(tau(Cp), tau(C1), tau(C2)) <= 0: continue
+
+          mA = min(len(Bp), len(Cp))
+          mB = min(len(Ap), len(Cp))
+          mC = min(len(Ap), len(Bp))
+
+          S = set(range(1, n+1))
+          Ac,Bc,Cc,A1c,B1c,C1c,A2c,B2c,C2c = (
+            S-set(X)
+            for X in (A,B,C,A1,B1,C1,A2,B2,C2)
+          )
+
+          Aw,Bw,Cw,A1w,B1w,C1w,A2w,B2w,C2w = (
+            Xc | set(range(n+1, n+len(X)-m+1))
+            for X, Xc, m in (
+              (A, Ac, mA),
+              (B, Bc, mB),
+              (C, Cc, mC),
+              (A1, A1c, mA),
+              (B1, B1c, mB),
+              (C1, C1c, mC),
+              (A2, A2c, mA),
+              (B2, B2c, mB),
+              (C2, C2c, mC),
+            )
+          )
+
+          if lrcoef(tau(Cw), tau(A1w), tau(B2w)) <= 0: continue
+          if lrcoef(tau(Bw), tau(C1w), tau(A2w)) <= 0: continue
+          if lrcoef(tau(Aw), tau(B1w), tau(C2w)) <= 0: continue
+
+          ans.append((A,Ap,B,Bp,C,Cp))
+  return ans
+
+
 # Every triple with positive NL-number should satisfy these inequalities.
 get_inequalities = lambda n: [
   # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(lam, 1) - at(lam, 3) + at(nu, 1) + at(nu, 3),
