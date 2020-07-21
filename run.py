@@ -156,15 +156,8 @@ def horn(n, mu, nu, lam, verbose=False):
 
 @lru_cache(maxsize=None)
 def grand_iter(n):
-  '''This is the large set of inequalities.'''
-  ans = []
-  for (A, Ap), (B, Bp), (C, Cp) in product(disjoints(n, nsets=2), repeat=3):
-    if not (
-      len(A) >= max(len(Bp),len(Cp))
-      and len(B) >= max(len(Ap),len(Cp))
-      and len(C) >= max(len(Ap),len(Bp))
-      ): continue
-
+  '''This is the iterator for the large set of inequalities.'''
+  def _find(n, A, Ap, B, Bp, C, Cp):
     for A1, A2 in product(combinations(range(1, n+1), r=len(Ap)), repeat=2):
       if lrcoef(tau(Ap), tau(A1), tau(A2)) <= 0: continue
       for B1, B2 in product(combinations(range(1, n+1), r=len(Bp)), repeat=2):
@@ -201,8 +194,38 @@ def grand_iter(n):
           if lrcoef(tau(Bw), tau(C1w), tau(A2w)) <= 0: continue
           if lrcoef(tau(Aw), tau(B1w), tau(C2w)) <= 0: continue
 
-          ans.append((A,Ap,B,Bp,C,Cp))
+          return (A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2)
+
+  ans = []
+  for (A, Ap), (B, Bp), (C, Cp) in product(disjoints(n, nsets=2), repeat=3):
+    if not (
+      len(A) >= max(len(Bp),len(Cp))
+      and len(B) >= max(len(Ap),len(Cp))
+      and len(C) >= max(len(Ap),len(Bp))
+      ): continue
+
+    res = _find(n, A, Ap, B, Bp, C, Cp)
+    if res is not None:
+      ans.append(res)
+
   return ans
+
+
+def grand(n, lam, mu, nu, verbose=False):
+  '''This is the large set of inequalities.'''
+  for (A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2) in grand_iter(n):
+    if 0 < (
+        sum(at(mu, i) for i in A)
+      - sum(at(mu, i) for i in Ap)
+      + sum(at(nu, j) for j in B)
+      - sum(at(nu, j) for j in Bp)
+      + sum(at(lam, k) for k in C)
+      - sum(at(lam, k) for k in Cp)
+    ):
+      if verbose:
+        print((A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2))
+      return False
+  return True
 
 
 # Every triple with positive NL-number should satisfy these inequalities.
@@ -211,20 +234,21 @@ get_inequalities = lambda n: [
   # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(nu, 1) + at(nu, 2) - at(nu, 3),
   # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(lam, 1) + at(nu, 2),
 
-  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 3),
-  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 3) - at(nu, 4),
-  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-  lambda mu, nu, lam: 0 <= -at(mu, 2) + at(mu, 3) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 3),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 3) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(mu, 3) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
 
-  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) - at(nu, 3) - at(nu, 4),
-  lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
-  lambda mu, nu, lam: 0 <= -at(mu, 1) - at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) + at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) - at(nu, 3) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
+  # lambda mu, nu, lam: 0 <= -at(mu, 1) - at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) + at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
 
-  partial(dsums, n),
-  partial(theorem512, n),
-  partial(horn, n),
+  # partial(dsums, n),
+  # partial(theorem512, n),
+  # partial(horn, n),
+  lambda mu, nu, lam: grand(n, lam, mu, nu, verbose=True),
 ]
 
 
