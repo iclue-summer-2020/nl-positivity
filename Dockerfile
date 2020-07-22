@@ -14,7 +14,9 @@ RUN apt-get -y update    \
 
 COPY . .
 
-RUN python3 -m pip install --upgrade pip \
- && python3 -m pip install \
+RUN pypy3 -m pip install --upgrade pip \
+ && pypy3 -m pip install \
       cmake==3.17.3        \
-      nlnum==1.2.1
+      dill==0.3.2          \
+      nlnum==1.2.1         \
+      pathos==0.2.6

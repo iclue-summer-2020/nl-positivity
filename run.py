@@ -11,8 +11,9 @@ os.environ['OMP_CANCELLATION'] = 'true'
 
 from collections import namedtuple
 from functools import lru_cache, partial
-from itertools import combinations, permutations, product
+from itertools import chain, combinations, permutations, product
 from nlnum import PartitionsIn, nlcoef as nlc, lrcoef as lrc
+from pathos.multiprocessing import ProcessingPool as Pool
 
 
 Triple = namedtuple('Triple', ['mu', 'nu', 'lam'])
@@ -54,44 +55,53 @@ def at(partition, idx):
   if idx >= 1: return partition[idx-1]
   raise IndexError(f'Negative index {idx} is out of bounds.')
 
-
-def flagger(n, k, inequalities=[]):
+def _get_ks(n, k, inequalities):
   for km in range(k+1):
     for kn in range(km+1):
-      # Only look at kl that satisfies the triangle inequality.
       for kl in range(abs(km-kn), 1+min(kn, kn+km)):
         if (km + kn + kl) % 2 == 1: continue
+        yield (n, k, inequalities, km, kn, kl)
 
-        pp = product(*[PartitionsIn([kk]*n, kk) for kk in (km, kn, kl)])
-        for mu, nu, lam in pp:
-          if not (mu >= nu >= lam): continue
+  yield from ()
 
-          # If NL > 0 and a perm fails the ineq OR NL = 0 and all perms succeed,
-          # then yield the triple.
-          satisfies = True
-          pos = bool(nlcoef(mu, nu, lam, check_positivity=True))
-          for (muu, nuu, lamm) in permutations((mu, nu, lam)):
-            failed_inequalities = [
-              (i, (muu, nuu, lamm))
-              for i, ineq in enumerate(inequalities)
-              if not ineq(muu, nuu, lamm)
-            ]
-            sat = not failed_inequalities
-            satisfies = satisfies and sat
-            if pos and not sat:
-              print(Result(
-                Triple(mu, nu, lam),
-                satisfies=False,
-                failed_inequalities=failed_inequalities,
-              ))
-              break
-          else:
-            if not pos and satisfies:
-              print(Result(
-                Triple(mu, nu, lam),
-                satisfies=True,
-                failed_inequalities=None,
-              ))
+def flagger(n, k, inequalities=[]):
+  with Pool() as pool:
+    for it in pool.imap(_flagger_helper, _get_ks(n, k, inequalities)):
+      pass
+
+
+def _flagger_helper(Xs):
+  n, k, inequalities, km, kn, kl = Xs
+  pp = product(*[PartitionsIn([kk]*n, kk) for kk in (km, kn, kl)])
+  for mu, nu, lam in pp:
+    if not (mu >= nu >= lam): continue
+
+    # If NL > 0 and a perm fails the ineq OR NL = 0 and all perms succeed,
+    # then yield the triple.
+    satisfies = True
+    pos = bool(nlcoef(mu, nu, lam, check_positivity=True))
+    for (muu, nuu, lamm) in permutations((mu, nu, lam)):
+      failed_inequalities = [
+        (i, (muu, nuu, lamm))
+        for i, ineq in enumerate(inequalities)
+        if not ineq(muu, nuu, lamm)
+      ]
+      sat = not failed_inequalities
+      satisfies = satisfies and sat
+      if pos and not sat:
+        print(Result(
+          Triple(mu, nu, lam),
+          satisfies=False,
+          failed_inequalities=failed_inequalities,
+        ))
+        break
+    else:
+      if not pos and satisfies:
+        print(Result(
+          Triple(mu, nu, lam),
+          satisfies=True,
+          failed_inequalities=None,
+        ))
 
 
 def theorem512(n, mu, nu, lam, verbose=False):
@@ -154,66 +164,72 @@ def horn(n, mu, nu, lam, verbose=False):
   return True
 
 
+def _compute(Xs):
+  n, ((A, Ap), (B, Bp), (C, Cp)) = Xs
+  if not (
+    len(A) >= max(len(Bp),len(Cp))
+    and len(B) >= max(len(Ap),len(Cp))
+    and len(C) >= max(len(Ap),len(Bp))
+    ): return None
+
+  return _find(n, A, Ap, B, Bp, C, Cp)
+
+
+def _find(n, A, Ap, B, Bp, C, Cp):
+  for A1, A2 in product(combinations(range(1, n+1), r=len(Ap)), repeat=2):
+    if lrcoef(tau(Ap), tau(A1), tau(A2)) <= 0: continue
+    for B1, B2 in product(combinations(range(1, n+1), r=len(Bp)), repeat=2):
+      if lrcoef(tau(Bp), tau(B1), tau(B2)) <= 0: continue
+      for C1, C2 in product(combinations(range(1, n+1), r=len(Cp)), repeat=2):
+        if lrcoef(tau(Cp), tau(C1), tau(C2)) <= 0: continue
+
+        mA = min(len(Bp), len(Cp))
+        mB = min(len(Ap), len(Cp))
+        mC = min(len(Ap), len(Bp))
+
+        S = set(range(1, n+1))
+        Ac,Bc,Cc,A1c,B1c,C1c,A2c,B2c,C2c = (
+          S-set(X)
+          for X in (A,B,C,A1,B1,C1,A2,B2,C2)
+        )
+
+        Aw,Bw,Cw,A1w,B1w,C1w,A2w,B2w,C2w = (
+          Xc | set(range(n+1, n+len(X)-m+1))
+          for X, Xc, m in (
+            (A, Ac, mA),
+            (B, Bc, mB),
+            (C, Cc, mC),
+            (A1, A1c, mC),
+            (B1, B1c, mA),
+            (C1, C1c, mB),
+            (A2, A2c, mB),
+            (B2, B2c, mC),
+            (C2, C2c, mA),
+          )
+        )
+
+        if all(c > 0 for c in (
+            lrcoef(tau(Cw), tau(A1w), tau(B2w)),
+            lrcoef(tau(Bw), tau(C1w), tau(A2w)),
+            lrcoef(tau(Aw), tau(B1w), tau(C2w)),
+        )): return (A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2)
+
+
 @lru_cache(maxsize=None)
 def grand_iter(n):
-  '''This is the iterator for the large set of inequalities.'''
-  def _find(n, A, Ap, B, Bp, C, Cp):
-    for A1, A2 in product(combinations(range(1, n+1), r=len(Ap)), repeat=2):
-      if lrcoef(tau(Ap), tau(A1), tau(A2)) <= 0: continue
-      for B1, B2 in product(combinations(range(1, n+1), r=len(Bp)), repeat=2):
-        if lrcoef(tau(Bp), tau(B1), tau(B2)) <= 0: continue
-        for C1, C2 in product(combinations(range(1, n+1), r=len(Cp)), repeat=2):
-          if lrcoef(tau(Cp), tau(C1), tau(C2)) <= 0: continue
-
-          mA = min(len(Bp), len(Cp))
-          mB = min(len(Ap), len(Cp))
-          mC = min(len(Ap), len(Bp))
-
-          S = set(range(1, n+1))
-          Ac,Bc,Cc,A1c,B1c,C1c,A2c,B2c,C2c = (
-            S-set(X)
-            for X in (A,B,C,A1,B1,C1,A2,B2,C2)
-          )
-
-          Aw,Bw,Cw,A1w,B1w,C1w,A2w,B2w,C2w = (
-            Xc | set(range(n+1, n+len(X)-m+1))
-            for X, Xc, m in (
-              (A, Ac, mA),
-              (B, Bc, mB),
-              (C, Cc, mC),
-              (A1, A1c, mC),
-              (B1, B1c, mA),
-              (C1, C1c, mB),
-              (A2, A2c, mB),
-              (B2, B2c, mC),
-              (C2, C2c, mA),
-            )
-          )
-
-          if lrcoef(tau(Cw), tau(A1w), tau(B2w)) <= 0: continue
-          if lrcoef(tau(Bw), tau(C1w), tau(A2w)) <= 0: continue
-          if lrcoef(tau(Aw), tau(B1w), tau(C2w)) <= 0: continue
-
-          return (A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2)
-
-  ans = []
-  for (A, Ap), (B, Bp), (C, Cp) in product(disjoints(n, nsets=2), repeat=3):
-    if not (
-      len(A) >= max(len(Bp),len(Cp))
-      and len(B) >= max(len(Ap),len(Cp))
-      and len(C) >= max(len(Ap),len(Bp))
-      ): continue
-
-    res = _find(n, A, Ap, B, Bp, C, Cp)
-    if res is not None:
-      ans.append(res)
-
-  return ans
+  with Pool() as pool: return [
+    x
+    for x in pool.imap(
+      _compute,
+      ((n, X) for X in product(disjoints(n, nsets=2), repeat=3)),
+    )
+    if x is not None
+  ]
 
 
-def grand(n, lam, mu, nu, verbose=False):
+def grand(gi, lam, mu, nu, verbose=False):
   '''This is the large set of inequalities.'''
-  for (A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2) in grand_iter(n):
+  for (A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2) in gi:
     if 0 > (
         sum(at(mu, i) for i in A)
       - sum(at(mu, i) for i in Ap)
@@ -229,32 +245,35 @@ def grand(n, lam, mu, nu, verbose=False):
 
 
 # Every triple with positive NL-number should satisfy these inequalities.
-get_inequalities = lambda n: [
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(lam, 1) - at(lam, 3) + at(nu, 1) + at(nu, 3),
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(nu, 1) + at(nu, 2) - at(nu, 3),
-  # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(lam, 1) + at(nu, 2),
+def get_inequalities(n):
+  gi = grand_iter(n)
+  return [
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(lam, 1) - at(lam, 3) + at(nu, 1) + at(nu, 3),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(nu, 1) + at(nu, 2) - at(nu, 3),
+    # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(lam, 1) + at(nu, 2),
 
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 3),
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 3) - at(nu, 4),
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
-  # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(mu, 3) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 3),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 2) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 2) + at(lam, 3)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 3) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 2) + at(mu, 3) + at(mu, 4)            + at(lam, 1) - at(lam, 3) + at(lam, 4)              + at(nu, 1) + at(nu, 2) - at(nu, 4),
 
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) - at(nu, 3) - at(nu, 4),
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
-  # lambda mu, nu, lam: 0 <= -at(mu, 1) - at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) + at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) + at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) - at(nu, 3) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) + at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) - at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
+    # lambda mu, nu, lam: 0 <= -at(mu, 1) - at(mu, 2) + at(mu, 3) + at(mu,4) + at(lam, 1) + at(lam, 2) - at(lam, 3) + at(lam, 4) + at(nu, 1) + at(nu, 2) + at(nu, 3) - at(nu, 4),
 
-  # partial(dsums, n),
-  # partial(theorem512, n),
-  # partial(horn, n),
-  lambda mu, nu, lam: grand(n, lam, mu, nu, verbose=True),
-]
+    # partial(dsums, n),
+    # partial(theorem512, n),
+    # partial(horn, n),
+    lambda mu, nu, lam: grand(gi, lam, mu, nu, verbose=False),
+  ]
 
 
 def main(args):
   n, k = args.n, args.k
   inequalities = get_inequalities(n)
+
   flagger(n, k, inequalities=inequalities)
 
   # print(f'Number flagged: {n_results}')
