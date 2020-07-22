@@ -181,12 +181,12 @@ def grand_iter(n):
               (A, Ac, mA),
               (B, Bc, mB),
               (C, Cc, mC),
-              (A1, A1c, mA),
-              (B1, B1c, mB),
-              (C1, C1c, mC),
-              (A2, A2c, mA),
-              (B2, B2c, mB),
-              (C2, C2c, mC),
+              (A1, A1c, mC),
+              (B1, B1c, mA),
+              (C1, C1c, mB),
+              (A2, A2c, mB),
+              (B2, B2c, mC),
+              (C2, C2c, mA),
             )
           )
 
@@ -214,7 +214,7 @@ def grand_iter(n):
 def grand(n, lam, mu, nu, verbose=False):
   '''This is the large set of inequalities.'''
   for (A,Ap,B,Bp,C,Cp), (A1,A2,B1,B2,C1,C2) in grand_iter(n):
-    if 0 < (
+    if 0 > (
         sum(at(mu, i) for i in A)
       - sum(at(mu, i) for i in Ap)
       + sum(at(nu, j) for j in B)
