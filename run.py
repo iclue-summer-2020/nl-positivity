@@ -165,14 +165,19 @@ def horn(n, mu, nu, lam, verbose=False):
 
 
 def _compute(Xs):
-  n, ((A, Ap), (B, Bp), (C, Cp)) = Xs
-  if not (
-    len(A) >= max(len(Bp),len(Cp))
-    and len(B) >= max(len(Ap),len(Cp))
-    and len(C) >= max(len(Ap),len(Bp))
-    ): return None
+  n, (A, Ap) = Xs
+  ans = []
+  for (B, Bp), (C, Cp) in product(disjoints(n, nsets=2), repeat=2):
+    if not (
+      len(A) >= max(len(Bp),len(Cp))
+      and len(B) >= max(len(Ap),len(Cp))
+      and len(C) >= max(len(Ap),len(Bp))
+      ): continue
 
-  return _find(n, A, Ap, B, Bp, C, Cp)
+    f = _find(n, A, Ap, B, Bp, C, Cp)
+    if f is not None:
+      ans.append(f)
+  return ans
 
 
 def _find(n, A, Ap, B, Bp, C, Cp):
@@ -217,14 +222,13 @@ def _find(n, A, Ap, B, Bp, C, Cp):
 
 @lru_cache(maxsize=None)
 def grand_iter(n):
-  with Pool() as pool: return [
+  with Pool() as pool: return list(chain.from_iterable([
     x
     for x in pool.imap(
       _compute,
-      ((n, X) for X in product(disjoints(n, nsets=2), repeat=3)),
+      ((n, (A, Ap)) for (A, Ap) in disjoints(n, nsets=2))
     )
-    if x is not None
-  ]
+  ]))
 
 
 def grand(gi, lam, mu, nu, verbose=False):
